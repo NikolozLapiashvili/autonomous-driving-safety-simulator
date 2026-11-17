@@ -11,7 +11,13 @@ import importlib
 import math
 from typing import Any
 
-from .models import PedestrianMode, PolicyDecision, PedestrianState, VehicleState, WorldState
+from .models import (
+    PedestrianMode,
+    PedestrianState,
+    PolicyDecision,
+    VehicleState,
+    WorldState,
+)
 
 
 class CarlaUnavailableError(RuntimeError):
@@ -168,7 +174,9 @@ class CarlaBackend:
     def _configure_world(self) -> None:
         settings = self.carla_world.get_settings()
         settings.synchronous_mode = self.config.synchronous_mode
-        settings.fixed_delta_seconds = self.config.fixed_delta_s if self.config.synchronous_mode else None
+        settings.fixed_delta_seconds = (
+            self.config.fixed_delta_s if self.config.synchronous_mode else None
+        )
         self.carla_world.apply_settings(settings)
 
     def _refresh_state(self) -> None:

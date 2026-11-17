@@ -41,7 +41,10 @@ class SafetyMonitor:
             for second_id, second_box in actors[index + 1 :]:
                 if first_box.intersects(second_box):
                     events.append(self._event(state.time_s, "collision", first_id, second_id))
-                elif self._distance_between(first_box, second_box) <= self.config.near_miss_distance_m:
+                elif (
+                    self._distance_between(first_box, second_box)
+                    <= self.config.near_miss_distance_m
+                ):
                     events.append(self._event(state.time_s, "near_miss", first_id, second_id))
         return events
 

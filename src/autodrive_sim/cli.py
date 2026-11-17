@@ -11,7 +11,12 @@ from collections.abc import Sequence
 from pathlib import Path
 
 from . import __version__
-from .carla_backend import CarlaBackend, CarlaConnectionConfig, CarlaSpawnError, CarlaUnavailableError
+from .carla_backend import (
+    CarlaBackend,
+    CarlaConnectionConfig,
+    CarlaSpawnError,
+    CarlaUnavailableError,
+)
 from .clock import SimulationClock
 from .config import ScenarioConfig
 from .events import CompositeEventSink, EventSink, JsonlEventSink
