@@ -27,3 +27,26 @@ The sensor layer now provides front RGB recording, collision events, and lane-in
 - Keep actor counts modest until spawn placement and cleanup are validated.
 - Record scenario seed, CARLA release, map, weather, and fixed delta in every experiment artifact.
 
+## Live realistic traffic mode
+
+The recommended visual run uses CARLA Traffic Manager instead of the small
+manual controller. Traffic Manager uses map waypoints, collision hazards,
+traffic-light hazards, junction priority, and a PID motion planner. The
+adapter also holds pedestrians until the policy grants a walk phase and keeps
+their destinations on the pedestrian navigation mesh.
+
+```powershell
+.\.carla-venv\Scripts\python.exe -m autodrive_sim run `
+  --backend carla `
+  --scenario .\scenarios\carla_live_crossing.toml `
+  --live `
+  --compact-traffic `
+  --traffic-manager `
+  --duration-s 120
+```
+
+Do not use the manual `--live` mode when evaluating actual junction behavior;
+it exists for adapter development and low-level control experiments. The
+Traffic Manager mode leaves CARLA's native traffic-light groups in control
+instead of forcing every light in the map to the same abstract phase.
+
