@@ -97,7 +97,7 @@ class ScenarioFactory:
             )
             pedestrian = PedestrianState(
                 actor_id=f"ped-{index:04d}",
-                position=Vec2(0, y),
+                position=Vec2(-1.0 if from_negative_side else 1.0, y),
                 heading=heading,
                 crosswalk_id=self.crosswalk_id,
             )
