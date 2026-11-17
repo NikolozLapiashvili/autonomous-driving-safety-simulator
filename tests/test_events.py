@@ -1,7 +1,13 @@
 import json
 from pathlib import Path
 
-from autodrive_sim.events import EventType, JsonlEventSink, MemoryEventSink, SimulationEvent
+from autodrive_sim.events import (
+    CompositeEventSink,
+    EventType,
+    JsonlEventSink,
+    MemoryEventSink,
+    SimulationEvent,
+)
 
 
 def test_memory_event_sink_preserves_event_order() -> None:
@@ -27,4 +33,15 @@ def test_jsonl_event_sink_writes_structured_record(tmp_path: Path) -> None:
         "payload": {"kind": "collision"},
         "time_s": 1.25,
     }
+
+
+def test_composite_event_sink_fans_out() -> None:
+    first = MemoryEventSink()
+    second = MemoryEventSink()
+    event = SimulationEvent(0.0, EventType.ACTOR_SPAWNED)
+
+    CompositeEventSink((first, second)).record(event)
+
+    assert first.events == [event]
+    assert second.events == [event]
 

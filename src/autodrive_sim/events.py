@@ -55,6 +55,17 @@ class MemoryEventSink:
 
 
 @dataclass(slots=True)
+class CompositeEventSink:
+    """Fan one event out to multiple independent sinks."""
+
+    sinks: tuple[EventSink, ...]
+
+    def record(self, event: SimulationEvent) -> None:
+        for sink in self.sinks:
+            sink.record(event)
+
+
+@dataclass(slots=True)
 class JsonlEventSink:
     """Append one JSON object per line for replay and analysis tools."""
 
