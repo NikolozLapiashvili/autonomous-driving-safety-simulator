@@ -3,6 +3,7 @@ import pytest
 from autodrive_sim.clock import SimulationClock
 from autodrive_sim.config import ScenarioConfig
 from autodrive_sim.events import EventType, MemoryEventSink
+from autodrive_sim.metrics import MetricsCollector
 from autodrive_sim.runner import SimulationRunner
 from autodrive_sim.scenario import ScenarioFactory
 
@@ -51,4 +52,23 @@ def test_runner_emits_policy_events() -> None:
     assert len(sink.events) == 2
     assert all(event.event_type is EventType.POLICY_DECISION for event in sink.events)
     assert {event.actor_id for event in sink.events} == {"car-0000", "ped-0000"}
+
+
+def test_runner_updates_metrics() -> None:
+    scenario = ScenarioFactory().build(
+        ScenarioConfig(seed=4, vehicle_count=0, pedestrian_count=1)
+    )
+    metrics = MetricsCollector()
+    runner = SimulationRunner(
+        world=scenario.world,
+        clock=SimulationClock(fixed_delta_s=0.1),
+        signal_controllers=scenario.signal_controllers,
+        event_sink=metrics,
+        metrics=metrics,
+    )
+
+    runner.run_steps(2)
+
+    assert metrics.report().policy_decisions == 2
+    assert metrics.report().pedestrian_wait_time_s == pytest.approx(0.2)
 

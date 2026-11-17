@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from .backend import WorldBackend
 from .clock import SimulationClock
 from .events import EventSink, EventType, SimulationEvent
+from .metrics import MetricsCollector
 from .models import PolicyDecision
 from .policy import SafetyPolicy
 from .signals import SignalController
@@ -30,6 +31,7 @@ class SimulationRunner:
     clock: SimulationClock = field(default_factory=SimulationClock)
     signal_controllers: list[SignalController] = field(default_factory=list)
     event_sink: EventSink | None = None
+    metrics: MetricsCollector | None = None
 
     def step(self) -> SimulationFrame:
         """Evaluate and apply exactly one fixed simulation step."""
@@ -43,6 +45,8 @@ class SimulationRunner:
         self.world.step(self.clock.fixed_delta_s, decision)
         for controller in self.signal_controllers:
             controller.tick(self.world.snapshot(), self.clock.fixed_delta_s)
+        if self.metrics is not None:
+            self.metrics.observe(self.world.snapshot(), self.clock.fixed_delta_s)
         self._record_signal_changes(phases_before, self.world.snapshot().time_s)
         time_s = self.clock.tick()
         return SimulationFrame(
