@@ -58,6 +58,8 @@ class CarlaBackend:
     state: WorldState = field(default_factory=WorldState)
     _carla: Any = field(default=None, repr=False)
     _vehicle_actors: dict[str, Any] = field(default_factory=dict, repr=False)
+    _vehicle_spawn_points: list[Any] = field(default_factory=list, repr=False)
+    _used_vehicle_spawn_points: set[int] = field(default_factory=set, repr=False)
     _pedestrian_actors: dict[str, Any] = field(default_factory=dict, repr=False)
     _pedestrian_controllers: dict[str, Any] = field(default_factory=dict, repr=False)
     _traffic_lights: dict[str, list[Any]] = field(default_factory=dict, repr=False)
@@ -76,6 +78,7 @@ class CarlaBackend:
         client.set_timeout(connection.timeout_s)
         world = client.get_world()
         backend = cls(client, world, connection, _carla=carla)
+        backend._vehicle_spawn_points = list(world.get_map().get_spawn_points())
         backend._configure_world()
         return backend
 
@@ -95,14 +98,20 @@ class CarlaBackend:
         if not blueprints:
             raise CarlaSpawnError("CARLA has no vehicle blueprints")
         blueprint = blueprints[0]
-        actor = self.carla_world.try_spawn_actor(
-            blueprint,
-            self._transform_for(vehicle.position.x, vehicle.position.y, vehicle.heading),
-        )
+        actor = self._try_spawn_vehicle_from_map(blueprint)
         if actor is None:
-            raise CarlaSpawnError(f"CARLA rejected vehicle spawn: {vehicle.actor_id}")
+            actor = self.carla_world.try_spawn_actor(
+                blueprint,
+                self._transform_for(vehicle.position.x, vehicle.position.y, vehicle.heading),
+            )
+        if actor is None:
+            raise CarlaSpawnError(
+                f"CARLA rejected vehicle spawn: {vehicle.actor_id}; "
+                "no free map spawn point was available"
+            )
         self._vehicle_actors[vehicle.actor_id] = actor
         self.state.vehicles[vehicle.actor_id] = vehicle
+        self._update_vehicle_state(vehicle)
 
     def spawn_pedestrian(self, pedestrian: PedestrianState) -> None:
         """Spawn a walker and its AI controller in CARLA."""
@@ -112,12 +121,12 @@ class CarlaBackend:
         blueprints = blueprint_library.filter("walker.pedestrian.*")
         if not blueprints:
             raise CarlaSpawnError("CARLA has no pedestrian blueprints")
-        walker = self.carla_world.try_spawn_actor(
-            blueprints[0],
-            self._transform_for(pedestrian.position.x, pedestrian.position.y, pedestrian.heading),
-        )
+        walker = self._try_spawn_walker_from_navigation(blueprints[0], pedestrian.heading)
         if walker is None:
-            raise CarlaSpawnError(f"CARLA rejected pedestrian spawn: {pedestrian.actor_id}")
+            raise CarlaSpawnError(
+                f"CARLA rejected pedestrian spawn: {pedestrian.actor_id}; "
+                "no free sidewalk navigation location was available"
+            )
         controller_blueprint = blueprint_library.find("controller.ai.walker")
         controller = self.carla_world.spawn_actor(
             controller_blueprint,
@@ -128,16 +137,20 @@ class CarlaBackend:
             walker.destroy()
             raise CarlaSpawnError(f"CARLA rejected walker controller: {pedestrian.actor_id}")
         controller.start()
-        target = self._carla.Location(
-            x=pedestrian.position.x + pedestrian.heading.x * 25.0,
-            y=pedestrian.position.y + pedestrian.heading.y * 25.0,
-            z=pedestrian.position.z if hasattr(pedestrian.position, "z") else 0.0,
-        )
+        target = self.carla_world.get_random_location_from_navigation()
+        if target is None:
+            transform = walker.get_transform()
+            target = self._carla.Location(
+                x=transform.location.x + pedestrian.heading.x * 25.0,
+                y=transform.location.y + pedestrian.heading.y * 25.0,
+                z=transform.location.z,
+            )
         controller.set_max_speed(pedestrian.speed_mps)
         controller.go_to_location(target)
         self._pedestrian_actors[pedestrian.actor_id] = walker
         self._pedestrian_controllers[pedestrian.actor_id] = controller
         self.state.pedestrians[pedestrian.actor_id] = pedestrian
+        self._update_pedestrian_state(pedestrian)
 
     def step(self, delta_s: float, decision: PolicyDecision) -> None:
         """Apply policy commands and advance the CARLA world one frame."""
@@ -205,28 +218,67 @@ class CarlaBackend:
             if not actor.is_alive:
                 continue
             state = self.state.vehicles[actor_id]
-            transform = actor.get_transform()
-            velocity = actor.get_velocity()
-            state.position = self._vec2(transform.location.x, transform.location.y)
-            state.heading = self._vec2(
-                math.cos(math.radians(transform.rotation.yaw)),
-                math.sin(math.radians(transform.rotation.yaw)),
-            )
-            state.speed_mps = math.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
+            self._update_vehicle_state(state)
         for actor_id, actor in self._pedestrian_actors.items():
             if not actor.is_alive:
                 continue
             state = self.state.pedestrians[actor_id]
-            transform = actor.get_transform()
-            velocity = actor.get_velocity()
-            state.position = self._vec2(transform.location.x, transform.location.y)
-            state.heading = self._vec2(
-                math.cos(math.radians(transform.rotation.yaw)),
-                math.sin(math.radians(transform.rotation.yaw)),
-            )
-            state.speed_mps = math.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
+            self._update_pedestrian_state(state)
             if state.mode is PedestrianMode.WAITING and state.speed_mps > 0.1:
                 state.mode = PedestrianMode.CROSSING
+
+    def _try_spawn_vehicle_from_map(self, blueprint: Any) -> Any | None:
+        for offset in range(len(self._vehicle_spawn_points)):
+            index = (len(self._vehicle_actors) + offset) % len(self._vehicle_spawn_points)
+            if index in self._used_vehicle_spawn_points:
+                continue
+            actor = self.carla_world.try_spawn_actor(blueprint, self._vehicle_spawn_points[index])
+            if actor is not None:
+                self._used_vehicle_spawn_points.add(index)
+                return actor
+        return None
+
+    def _try_spawn_walker_from_navigation(self, blueprint: Any, heading: Any) -> Any | None:
+        for _ in range(20):
+            location = self.carla_world.get_random_location_from_navigation()
+            if location is None:
+                continue
+            actor = self.carla_world.try_spawn_actor(
+                blueprint,
+                self._carla.Transform(
+                    location,
+                    self._carla.Rotation(yaw=math.degrees(math.atan2(heading.y, heading.x))),
+                ),
+            )
+            if actor is not None:
+                return actor
+        return None
+
+    def _update_vehicle_state(self, state: VehicleState) -> None:
+        actor = self._vehicle_actors.get(state.actor_id)
+        if actor is None or not actor.is_alive:
+            return
+        transform = actor.get_transform()
+        velocity = actor.get_velocity()
+        state.position = self._vec2(transform.location.x, transform.location.y)
+        state.heading = self._vec2(
+            math.cos(math.radians(transform.rotation.yaw)),
+            math.sin(math.radians(transform.rotation.yaw)),
+        )
+        state.speed_mps = math.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
+
+    def _update_pedestrian_state(self, state: PedestrianState) -> None:
+        actor = self._pedestrian_actors.get(state.actor_id)
+        if actor is None or not actor.is_alive:
+            return
+        transform = actor.get_transform()
+        velocity = actor.get_velocity()
+        state.position = self._vec2(transform.location.x, transform.location.y)
+        state.heading = self._vec2(
+            math.cos(math.radians(transform.rotation.yaw)),
+            math.sin(math.radians(transform.rotation.yaw)),
+        )
+        state.speed_mps = math.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
 
     def _transform_for(self, x: float, y: float, heading: Any) -> Any:
         yaw = math.degrees(math.atan2(heading.y, heading.x))
