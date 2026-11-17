@@ -25,6 +25,25 @@ def test_metrics_count_policy_and_signal_events() -> None:
     assert report.signal_phase_changes == 1
 
 
+def test_metrics_classify_safety_event_kinds() -> None:
+    metrics = MetricsCollector()
+    metrics.record(
+        SimulationEvent(0, EventType.SAFETY_VIOLATION, {"kind": "collision"})
+    )
+    metrics.record(
+        SimulationEvent(0, EventType.SAFETY_VIOLATION, {"kind": "near_miss"})
+    )
+    metrics.record(
+        SimulationEvent(0, EventType.SAFETY_VIOLATION, {"kind": "lane_invasion"})
+    )
+
+    report = metrics.report()
+
+    assert report.collisions == 1
+    assert report.near_misses == 1
+    assert report.lane_invasions == 1
+
+
 def test_metrics_accumulate_pedestrian_wait_time() -> None:
     metrics = MetricsCollector()
     state = WorldState(
