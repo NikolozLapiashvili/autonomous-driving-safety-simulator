@@ -53,6 +53,7 @@ class SignalController:
 
     signal_id: str
     timing: SignalTiming = field(default_factory=SignalTiming)
+    _phase_index: int = field(default=0, init=False, repr=False)
 
     def tick(self, state: WorldState, delta_s: float) -> TrafficSignalState:
         """Advance the owned signal, handling large deltas without drift."""
@@ -62,17 +63,14 @@ class SignalController:
         if signal is None:
             raise KeyError(f"signal does not exist: {self.signal_id}")
 
-        signal.elapsed_s += delta_s
-        while signal.elapsed_s >= self.timing.duration_for(signal.phase):
-            signal.elapsed_s -= self.timing.duration_for(signal.phase)
-            signal.phase = self._next_phase(signal.phase)
-        return signal
+        current_phase = PHASE_ORDER[self._phase_index]
+        if signal.phase is not current_phase:
+            self._phase_index = PHASE_ORDER.index(signal.phase)
 
-    @staticmethod
-    def _next_phase(phase: TrafficPhase) -> TrafficPhase:
-        try:
-            index = PHASE_ORDER.index(phase)
-        except ValueError as error:
-            raise ValueError(f"unsupported signal phase: {phase}") from error
-        return PHASE_ORDER[(index + 1) % len(PHASE_ORDER)]
+        signal.elapsed_s += delta_s
+        while signal.elapsed_s >= self.timing.duration_for(PHASE_ORDER[self._phase_index]):
+            signal.elapsed_s -= self.timing.duration_for(PHASE_ORDER[self._phase_index])
+            self._phase_index = (self._phase_index + 1) % len(PHASE_ORDER)
+            signal.phase = PHASE_ORDER[self._phase_index]
+        return signal
 

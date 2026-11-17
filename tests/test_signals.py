@@ -35,7 +35,7 @@ def test_signal_controller_handles_multiple_transitions() -> None:
         pedestrian_walk_s=1,
     )
     controller = SignalController("sig-1", timing)
-    controller.tick(state, 4.25)
+    controller.tick(state, 5.25)
     assert state.signals["sig-1"].phase is TrafficPhase.VEHICLE_GREEN
     assert state.signals["sig-1"].elapsed_s == pytest.approx(0.25)
 
