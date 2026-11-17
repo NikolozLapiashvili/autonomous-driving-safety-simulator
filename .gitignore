@@ -1,0 +1,25 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+build/
+.env
+logs/
+recordings/
+artifacts/
+*.pyc
+
+# CARLA-generated files
+CarlaUE4/Saved/
+*.log
+
+# Local IDE files
+.idea/
+.vscode/
+
