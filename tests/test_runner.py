@@ -5,6 +5,7 @@ from autodrive_sim.config import ScenarioConfig
 from autodrive_sim.events import EventType, MemoryEventSink
 from autodrive_sim.metrics import MetricsCollector
 from autodrive_sim.runner import SimulationRunner
+from autodrive_sim.safety import SafetyMonitor
 from autodrive_sim.scenario import ScenarioFactory
 
 
@@ -71,4 +72,25 @@ def test_runner_updates_metrics() -> None:
 
     assert metrics.report().policy_decisions == 2
     assert metrics.report().pedestrian_wait_time_s == pytest.approx(0.2)
+
+
+def test_runner_records_safety_monitor_events() -> None:
+    scenario = ScenarioFactory().build(
+        ScenarioConfig(seed=4, vehicle_count=2, pedestrian_count=0)
+    )
+    first = scenario.world.state.vehicles["car-0000"]
+    second = scenario.world.state.vehicles["car-0001"]
+    second.position = first.position
+    sink = MemoryEventSink()
+    runner = SimulationRunner(
+        world=scenario.world,
+        clock=SimulationClock(fixed_delta_s=0.1),
+        signal_controllers=scenario.signal_controllers,
+        event_sink=sink,
+        safety_monitor=SafetyMonitor(),
+    )
+
+    runner.step()
+
+    assert any(event.payload.get("kind") == "collision" for event in sink.events)
 

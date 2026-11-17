@@ -10,6 +10,7 @@ from .events import EventSink, EventType, SimulationEvent
 from .metrics import MetricsCollector
 from .models import PolicyDecision
 from .policy import SafetyPolicy
+from .safety import SafetyMonitor
 from .signals import SignalController
 
 
@@ -32,6 +33,7 @@ class SimulationRunner:
     signal_controllers: list[SignalController] = field(default_factory=list)
     event_sink: EventSink | None = None
     metrics: MetricsCollector | None = None
+    safety_monitor: SafetyMonitor | None = None
 
     def step(self) -> SimulationFrame:
         """Evaluate and apply exactly one fixed simulation step."""
@@ -47,6 +49,9 @@ class SimulationRunner:
             controller.tick(self.world.snapshot(), self.clock.fixed_delta_s)
         if self.metrics is not None:
             self.metrics.observe(self.world.snapshot(), self.clock.fixed_delta_s)
+        if self.event_sink is not None and self.safety_monitor is not None:
+            for event in self.safety_monitor.inspect(self.world.snapshot()):
+                self.event_sink.record(event)
         self._record_signal_changes(phases_before, self.world.snapshot().time_s)
         time_s = self.clock.tick()
         return SimulationFrame(
