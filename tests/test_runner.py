@@ -2,6 +2,7 @@ import pytest
 
 from autodrive_sim.clock import SimulationClock
 from autodrive_sim.config import ScenarioConfig
+from autodrive_sim.events import EventType, MemoryEventSink
 from autodrive_sim.runner import SimulationRunner
 from autodrive_sim.scenario import ScenarioFactory
 
@@ -31,4 +32,23 @@ def test_runner_rejects_non_integral_duration() -> None:
     runner = SimulationRunner(world=scenario.world, clock=SimulationClock(0.1))
     with pytest.raises(ValueError, match="divisible"):
         runner.run_for(0.15)
+
+
+def test_runner_emits_policy_events() -> None:
+    scenario = ScenarioFactory().build(
+        ScenarioConfig(seed=4, vehicle_count=1, pedestrian_count=1)
+    )
+    sink = MemoryEventSink()
+    runner = SimulationRunner(
+        world=scenario.world,
+        clock=SimulationClock(fixed_delta_s=0.1),
+        signal_controllers=scenario.signal_controllers,
+        event_sink=sink,
+    )
+
+    runner.step()
+
+    assert len(sink.events) == 2
+    assert all(event.event_type is EventType.POLICY_DECISION for event in sink.events)
+    assert {event.actor_id for event in sink.events} == {"car-0000", "ped-0000"}
 
