@@ -18,6 +18,8 @@ The exact client command is intentionally pinned only after the target OS and CA
 
 The first adapter uses CARLA ground-truth transforms and velocities. Camera, LiDAR, collision, and lane-invasion sensors will be added behind the same domain snapshot boundary so that the policy engine stays independent of the rendering backend.
 
+The sensor layer now provides front RGB recording, collision events, and lane-invasion events. RGB frames are written as `actor_rgb_<frame>.png` files under `artifacts/sensors/`; the other sensors use the same JSONL event sink as the policy engine.
+
 ## Practical expectations
 
 - Use a discrete GPU for real-time 3D runs.
