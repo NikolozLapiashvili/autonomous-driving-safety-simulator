@@ -15,6 +15,7 @@ class SafetyMonitorConfig:
     """Thresholds used by the post-step monitor."""
 
     near_miss_distance_m: float = 1.0
+    include_pedestrian_pedestrian: bool = False
 
     def __post_init__(self) -> None:
         if self.near_miss_distance_m <= 0 or not math.isfinite(self.near_miss_distance_m):
@@ -22,7 +23,12 @@ class SafetyMonitorConfig:
 
 
 class SafetyMonitor:
-    """Find pairwise actor conflicts in a backend-independent world snapshot."""
+    """Find vehicle-related conflicts in a backend-independent world snapshot.
+
+    Pedestrian-to-pedestrian overlap is not an autonomous-vehicle safety
+    violation, so it is excluded by default. It can be enabled for crowd
+    simulation experiments with ``include_pedestrian_pedestrian=True``.
+    """
 
     def __init__(self, config: SafetyMonitorConfig | None = None) -> None:
         self.config = config or SafetyMonitorConfig()
@@ -39,8 +45,15 @@ class SafetyMonitor:
         ]
         events: list[SimulationEvent] = []
         current_conflicts: dict[tuple[str, str], str] = {}
+        vehicle_ids = set(state.vehicles)
         for index, (first_id, first_box) in enumerate(actors):
             for second_id, second_box in actors[index + 1 :]:
+                if (
+                    not self.config.include_pedestrian_pedestrian
+                    and first_id not in vehicle_ids
+                    and second_id not in vehicle_ids
+                ):
+                    continue
                 pair = (first_id, second_id)
                 if first_box.intersects(second_box):
                     kind = "collision"
