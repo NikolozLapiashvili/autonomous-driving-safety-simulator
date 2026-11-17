@@ -50,7 +50,7 @@ class ScenarioFactory:
         )
 
         self._spawn_vehicles(world, config, rng)
-        self._spawn_pedestrians(world, config, rng)
+        self._spawn_pedestrians(world, config)
         return BuiltScenario(
             config=config,
             world=world,
@@ -83,17 +83,21 @@ class ScenarioFactory:
         self,
         world: KinematicWorld,
         config: ScenarioConfig,
-        rng: random.Random,
     ) -> None:
         for index in range(config.pedestrian_count):
             from_negative_side = index % 2 == 0
             side = -1 if from_negative_side else 1
+            queue_index = index // 2
             heading = Vec2(0, 1) if from_negative_side else Vec2(0, -1)
             crosswalk = world.state.crosswalks[self.crosswalk_id]
-            y = side * (crosswalk.conflict_zone.half_extents.y + config.pedestrian_wait_distance_m)
+            y = side * (
+                crosswalk.conflict_zone.half_extents.y
+                + config.pedestrian_wait_distance_m
+                + queue_index * 1.5
+            )
             pedestrian = PedestrianState(
                 actor_id=f"ped-{index:04d}",
-                position=Vec2(rng.uniform(-1.5, 1.5), y),
+                position=Vec2(0, y),
                 heading=heading,
                 crosswalk_id=self.crosswalk_id,
             )
