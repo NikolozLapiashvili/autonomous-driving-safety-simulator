@@ -30,6 +30,8 @@ class SafetyPolicyConfig:
     pedestrian_buffer_m: float = 0.75
     vehicle_buffer_m: float = 1.0
     pedestrian_min_ttc_s: float = 3.0
+    min_following_gap_m: float = 6.0
+    time_headway_s: float = 1.5
 
     def __post_init__(self) -> None:
         values = (
@@ -38,6 +40,8 @@ class SafetyPolicyConfig:
             self.pedestrian_buffer_m,
             self.vehicle_buffer_m,
             self.pedestrian_min_ttc_s,
+            self.min_following_gap_m,
+            self.time_headway_s,
         )
         if any(value <= 0 or not math.isfinite(value) for value in values):
             raise ValueError("safety policy parameters must be finite and positive")
@@ -82,8 +86,9 @@ class SafetyPolicy:
             for crosswalk in state.crosswalks.values()
             if self._vehicle_relevant_to_crosswalk(vehicle, crosswalk)
         ]
+        following_command = self._following_command(vehicle, state)
         if not relevant_crosswalks:
-            return self._proceed_command()
+            return following_command or self._proceed_command()
 
         for crosswalk in relevant_crosswalks:
             if self._vehicle_in_conflict_zone(vehicle, crosswalk):
@@ -109,6 +114,8 @@ class SafetyPolicy:
                     reason=VehicleDecisionReason.SIGNAL_STOP,
                 )
 
+        if following_command is not None:
+            return following_command
         return self._proceed_command()
 
     def _pedestrian_command(
@@ -162,6 +169,59 @@ class SafetyPolicy:
             should_stop=False,
             reason=VehicleDecisionReason.CLEAR_TO_PROCEED,
         )
+
+    def _following_command(
+        self,
+        vehicle: VehicleState,
+        state: WorldState,
+    ) -> VehicleCommand | None:
+        leader = self._nearest_leader(vehicle, state)
+        if leader is None:
+            return None
+        longitudinal_gap = self._longitudinal_gap(vehicle, leader)
+        safe_gap = max(
+            self.config.min_following_gap_m,
+            vehicle.speed_mps * self.config.time_headway_s,
+        )
+        if longitudinal_gap <= self.config.min_following_gap_m * 0.75:
+            return VehicleCommand(
+                target_speed_mps=0.0,
+                should_stop=True,
+                reason=VehicleDecisionReason.FOLLOWING_TRAFFIC,
+            )
+        if longitudinal_gap < safe_gap:
+            target_speed = min(self.config.speed_limit_mps, leader.speed_mps)
+            return VehicleCommand(
+                target_speed_mps=target_speed,
+                should_stop=target_speed == 0,
+                reason=VehicleDecisionReason.FOLLOWING_TRAFFIC,
+            )
+        return None
+
+    def _nearest_leader(
+        self,
+        vehicle: VehicleState,
+        state: WorldState,
+    ) -> VehicleState | None:
+        lateral_direction = Vec2(-vehicle.heading.y, vehicle.heading.x)
+        leaders: list[tuple[float, VehicleState]] = []
+        for other in state.vehicles.values():
+            if other.actor_id == vehicle.actor_id:
+                continue
+            relative = other.position - vehicle.position
+            longitudinal = relative.dot(vehicle.heading)
+            lateral = abs(relative.dot(lateral_direction))
+            lane_tolerance = (vehicle.width_m + other.width_m) / 2 + 0.5
+            if longitudinal > 0 and lateral <= lane_tolerance:
+                leaders.append((longitudinal, other))
+        if not leaders:
+            return None
+        return min(leaders, key=lambda item: item[0])[1]
+
+    @staticmethod
+    def _longitudinal_gap(follower: VehicleState, leader: VehicleState) -> float:
+        distance = (leader.position - follower.position).dot(follower.heading)
+        return distance - (follower.length_m + leader.length_m) / 2
 
     def _vehicle_relevant_to_crosswalk(
         self,

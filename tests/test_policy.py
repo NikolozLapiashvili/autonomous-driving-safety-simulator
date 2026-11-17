@@ -119,3 +119,33 @@ def test_vehicle_inside_zone_is_allowed_to_clear_it() -> None:
     assert not command.should_stop
     assert command.reason is VehicleDecisionReason.CLEAR_TO_PROCEED
 
+
+def test_vehicle_follows_a_stopped_leader() -> None:
+    world = make_world(phase=TrafficPhase.VEHICLE_GREEN, vehicle_position=Vec2(-25, 0))
+    world.vehicles["car-1"].speed_mps = 6
+    world.vehicles["car-2"] = VehicleState(
+        actor_id="car-2",
+        position=Vec2(-15, 0),
+        heading=Vec2(1, 0),
+        speed_mps=0,
+    )
+
+    command = SafetyPolicy().evaluate(world).vehicle_commands["car-1"]
+
+    assert command.should_stop
+    assert command.reason is VehicleDecisionReason.FOLLOWING_TRAFFIC
+
+
+def test_vehicle_does_not_follow_a_car_in_an_adjacent_lane() -> None:
+    world = make_world(phase=TrafficPhase.VEHICLE_GREEN, vehicle_position=Vec2(-25, 0))
+    world.vehicles["car-2"] = VehicleState(
+        actor_id="car-2",
+        position=Vec2(-15, 3.5),
+        heading=Vec2(1, 0),
+        speed_mps=0,
+    )
+
+    command = SafetyPolicy().evaluate(world).vehicle_commands["car-1"]
+
+    assert not command.should_stop
+

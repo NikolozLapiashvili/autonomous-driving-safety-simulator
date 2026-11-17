@@ -40,6 +40,7 @@ class VehicleDecisionReason(StrEnum):
     SIGNAL_STOP = "signal_stop"
     PEDESTRIAN_IN_CONFLICT_ZONE = "pedestrian_in_conflict_zone"
     CONFLICT_ZONE_UNSAFE = "conflict_zone_unsafe"
+    FOLLOWING_TRAFFIC = "following_traffic"
     EMERGENCY_STOP = "emergency_stop"
 
 
