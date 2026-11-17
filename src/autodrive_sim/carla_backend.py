@@ -63,6 +63,7 @@ class CarlaBackend:
     _pedestrian_actors: dict[str, Any] = field(default_factory=dict, repr=False)
     _pedestrian_controllers: dict[str, Any] = field(default_factory=dict, repr=False)
     _traffic_lights: dict[str, list[Any]] = field(default_factory=dict, repr=False)
+    _spectator_follow_id: str | None = field(default=None, repr=False)
 
     @classmethod
     def connect(cls, config: CarlaConnectionConfig | None = None) -> CarlaBackend:
@@ -112,6 +113,9 @@ class CarlaBackend:
         self._vehicle_actors[vehicle.actor_id] = actor
         self.state.vehicles[vehicle.actor_id] = vehicle
         self._update_vehicle_state(vehicle)
+        if self._spectator_follow_id is None:
+            self._spectator_follow_id = vehicle.actor_id
+            self._update_spectator()
 
     def spawn_pedestrian(self, pedestrian: PedestrianState) -> None:
         """Spawn a walker and its AI controller in CARLA."""
@@ -164,13 +168,21 @@ class CarlaBackend:
             speed_error = command.target_speed_mps - speed_mps
             throttle = max(0.0, min(1.0, speed_error / 5.0))
             brake = 1.0 if command.should_stop else max(0.0, min(1.0, -speed_error / 5.0))
-            actor.apply_control(self._carla.VehicleControl(throttle=throttle, brake=brake))
+            steer = self._lane_following_steer(actor)
+            actor.apply_control(
+                self._carla.VehicleControl(
+                    throttle=throttle,
+                    steer=steer,
+                    brake=brake,
+                )
+            )
         if self.config.synchronous_mode:
             self.carla_world.tick()
         else:
             self.carla_world.wait_for_tick()
         self.state.time_s += delta_s
         self._refresh_state()
+        self._update_spectator()
 
     def sync_signals(self) -> None:
         """Apply domain signal phases to CARLA traffic-light actors."""
@@ -228,15 +240,48 @@ class CarlaBackend:
                 state.mode = PedestrianMode.CROSSING
 
     def _try_spawn_vehicle_from_map(self, blueprint: Any) -> Any | None:
-        for offset in range(len(self._vehicle_spawn_points)):
-            index = (len(self._vehicle_actors) + offset) % len(self._vehicle_spawn_points)
-            if index in self._used_vehicle_spawn_points:
+        candidate_indices = [
+            index
+            for index in range(len(self._vehicle_spawn_points))
+            if index not in self._used_vehicle_spawn_points
+        ]
+        existing_locations = [
+            actor.get_location()
+            for actor in self._vehicle_actors.values()
+            if actor.is_alive
+        ]
+        if existing_locations:
+            candidate_indices.sort(
+                key=lambda index: self._minimum_spawn_distance(
+                    self._vehicle_spawn_points[index], existing_locations
+                ),
+                reverse=True,
+            )
+        for index in candidate_indices:
+            if existing_locations and self._minimum_spawn_distance(
+                self._vehicle_spawn_points[index], existing_locations
+            ) < 8.0:
                 continue
             actor = self.carla_world.try_spawn_actor(blueprint, self._vehicle_spawn_points[index])
             if actor is not None:
                 self._used_vehicle_spawn_points.add(index)
                 return actor
+        for index in candidate_indices:
+            actor = self.carla_world.try_spawn_actor(blueprint, self._vehicle_spawn_points[index])
+            if actor is not None:
+                self._used_vehicle_spawn_points.add(index)
+                return actor
         return None
+
+    @staticmethod
+    def _minimum_spawn_distance(transform: Any, locations: list[Any]) -> float:
+        return min(
+            math.hypot(
+                transform.location.x - location.x,
+                transform.location.y - location.y,
+            )
+            for location in locations
+        )
 
     def _try_spawn_walker_from_navigation(self, blueprint: Any, heading: Any) -> Any | None:
         for _ in range(20):
@@ -290,6 +335,43 @@ class CarlaBackend:
     def _actor_speed_mps(self, actor: Any) -> float:
         velocity = actor.get_velocity()
         return math.sqrt(velocity.x**2 + velocity.y**2 + velocity.z**2)
+
+    def _lane_following_steer(self, actor: Any) -> float:
+        """Steer toward a short-horizon CARLA lane waypoint."""
+        waypoint = self.carla_world.get_map().get_waypoint(
+            actor.get_location(),
+            project_to_road=True,
+            lane_type=self._carla.LaneType.Driving,
+        )
+        if waypoint is None:
+            return 0.0
+        next_waypoints = waypoint.next(8.0)
+        target = next_waypoints[0] if next_waypoints else waypoint
+        current_yaw = actor.get_transform().rotation.yaw
+        target_yaw = target.transform.rotation.yaw
+        yaw_error = (target_yaw - current_yaw + 180.0) % 360.0 - 180.0
+        return max(-1.0, min(1.0, yaw_error / 45.0))
+
+    def _update_spectator(self) -> None:
+        if self._spectator_follow_id is None:
+            return
+        actor = self._vehicle_actors.get(self._spectator_follow_id)
+        if actor is None or not actor.is_alive:
+            return
+        transform = actor.get_transform()
+        forward = actor.get_forward_vector()
+        camera_location = self._carla.Location(
+            x=transform.location.x - forward.x * 12.0,
+            y=transform.location.y - forward.y * 12.0,
+            z=transform.location.z + 7.0,
+        )
+        camera_rotation = self._carla.Rotation(
+            pitch=-20.0,
+            yaw=transform.rotation.yaw,
+        )
+        self.carla_world.get_spectator().set_transform(
+            self._carla.Transform(camera_location, camera_rotation)
+        )
 
     @staticmethod
     def _vec2(x: float, y: float) -> Any:

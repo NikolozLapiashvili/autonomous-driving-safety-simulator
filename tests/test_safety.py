@@ -32,3 +32,16 @@ def test_safety_monitor_detects_near_miss() -> None:
     assert len(events) == 1
     assert events[0].payload["kind"] == "near_miss"
 
+
+def test_safety_monitor_does_not_repeat_active_conflict_every_frame() -> None:
+    state = WorldState(
+        vehicles={
+            "car-1": VehicleState("car-1", Vec2(0, 0), Vec2(1, 0), 0),
+            "car-2": VehicleState("car-2", Vec2(1, 0), Vec2(-1, 0), 0),
+        }
+    )
+    monitor = SafetyMonitor()
+
+    assert len(monitor.inspect(state)) == 1
+    assert monitor.inspect(state) == []
+

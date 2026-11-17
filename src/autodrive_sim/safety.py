@@ -26,6 +26,7 @@ class SafetyMonitor:
 
     def __init__(self, config: SafetyMonitorConfig | None = None) -> None:
         self.config = config or SafetyMonitorConfig()
+        self._active_conflicts: dict[tuple[str, str], str] = {}
 
     def inspect(self, state: WorldState) -> list[SimulationEvent]:
         """Return one event for each collision or near-miss pair."""
@@ -37,15 +38,23 @@ class SafetyMonitor:
             for actor_id, pedestrian in state.pedestrians.items()
         ]
         events: list[SimulationEvent] = []
+        current_conflicts: dict[tuple[str, str], str] = {}
         for index, (first_id, first_box) in enumerate(actors):
             for second_id, second_box in actors[index + 1 :]:
+                pair = (first_id, second_id)
                 if first_box.intersects(second_box):
-                    events.append(self._event(state.time_s, "collision", first_id, second_id))
+                    kind = "collision"
                 elif (
                     self._distance_between(first_box, second_box)
                     <= self.config.near_miss_distance_m
                 ):
-                    events.append(self._event(state.time_s, "near_miss", first_id, second_id))
+                    kind = "near_miss"
+                else:
+                    continue
+                current_conflicts[pair] = kind
+                if self._active_conflicts.get(pair) != kind:
+                    events.append(self._event(state.time_s, kind, first_id, second_id))
+        self._active_conflicts = current_conflicts
         return events
 
     @staticmethod
