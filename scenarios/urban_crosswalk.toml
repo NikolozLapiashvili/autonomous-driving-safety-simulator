@@ -1,0 +1,9 @@
+[scenario]
+name = "urban_crosswalk"
+seed = 42
+vehicle_count = 12
+pedestrian_count = 6
+vehicle_speed_mps = 8.0
+vehicle_spacing_m = 12.0
+pedestrian_wait_distance_m = 4.0
+

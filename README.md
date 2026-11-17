@@ -51,7 +51,10 @@ python -m pip install --upgrade pip
 python -m pip install -e ".[dev]"
 pytest
 autodrive-sim doctor
+autodrive-sim run --scenario scenarios/urban_crosswalk.toml --steps 100
 ```
+
+The `run` command prints a JSON metrics summary. Add `--events artifacts/run.jsonl` to persist all policy decisions and signal changes.
 
 The CARLA client is installed separately because its Python wheel must match the CARLA server package and the target operating system. We will pin and document the compatible version once the target machine is known.
 
