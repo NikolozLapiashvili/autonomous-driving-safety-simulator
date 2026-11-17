@@ -359,7 +359,8 @@ class CarlaBackend:
         if actor is None or not actor.is_alive:
             return
         transform = actor.get_transform()
-        forward = actor.get_forward_vector()
+        # CARLA exposes the forward vector on Transform, not on Actor.
+        forward = transform.get_forward_vector()
         camera_location = self._carla.Location(
             x=transform.location.x - forward.x * 12.0,
             y=transform.location.y - forward.y * 12.0,
