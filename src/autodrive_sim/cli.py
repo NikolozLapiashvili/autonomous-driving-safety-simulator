@@ -7,6 +7,7 @@ import importlib.util
 import json
 import platform
 import sys
+import time
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -49,6 +50,33 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_parser.add_argument("--steps", type=int, default=100, help="Number of fixed steps to run.")
     run_parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Run CARLA in real time so the simulation can be watched live.",
+    )
+    run_parser.add_argument(
+        "--compact-traffic",
+        action="store_true",
+        help="Place CARLA vehicles in a nearby group for live visual demos.",
+    )
+    run_parser.add_argument(
+        "--traffic-manager",
+        action="store_true",
+        help="Use CARLA Traffic Manager for map-aware vehicle AI and yielding.",
+    )
+    run_parser.add_argument(
+        "--tm-port",
+        type=int,
+        default=8000,
+        help="CARLA Traffic Manager port.",
+    )
+    run_parser.add_argument(
+        "--duration-s",
+        type=float,
+        default=60.0,
+        help="Live-mode duration in seconds; use 0 to run until Ctrl+C.",
+    )
+    run_parser.add_argument(
         "--delta-s",
         type=float,
         default=0.05,
@@ -81,9 +109,33 @@ def _run_doctor() -> int:
     return 0
 
 
+def _run_live(runner: SimulationRunner, duration_s: float) -> None:
+    """Advance a runner at wall-clock speed until the requested duration."""
+    deadline = None if duration_s == 0 else time.monotonic() + duration_s
+    next_tick = time.monotonic()
+    while deadline is None or time.monotonic() < deadline:
+        runner.step()
+        next_tick += runner.clock.fixed_delta_s
+        sleep_s = next_tick - time.monotonic()
+        if sleep_s > 0:
+            time.sleep(sleep_s)
+        else:
+            # CARLA or the host fell behind. Reset the pacing origin instead
+            # of trying to execute a burst of catch-up ticks.
+            next_tick = time.monotonic()
+
+
 def _run_scenario(args: argparse.Namespace) -> int:
     if args.steps < 0:
         raise ValueError("--steps cannot be negative")
+    if args.duration_s < 0:
+        raise ValueError("--duration-s cannot be negative")
+    if args.live and args.backend != "carla":
+        raise ValueError("--live requires --backend carla")
+    if args.traffic_manager and args.backend != "carla":
+        raise ValueError("--traffic-manager requires --backend carla")
+    if not 1 <= args.tm_port <= 65_535:
+        raise ValueError("--tm-port must be between 1 and 65535")
     config = ScenarioConfig.from_toml(args.scenario)
     built = ScenarioFactory().build(config)
     metrics = MetricsCollector()
@@ -95,19 +147,24 @@ def _run_scenario(args: argparse.Namespace) -> int:
 
     backend = built.world
     carla_backend: CarlaBackend | None = None
-    if args.backend == "carla":
-        carla_backend = CarlaBackend.connect(
-            CarlaConnectionConfig(host=args.host, port=args.port, fixed_delta_s=args.delta_s)
-        )
-        carla_backend.state.crosswalks.update(built.world.state.crosswalks)
-        carla_backend.state.signals.update(built.world.state.signals)
-        for vehicle in built.world.state.vehicles.values():
-            carla_backend.spawn_vehicle(vehicle)
-        for pedestrian in built.world.state.pedestrians.values():
-            carla_backend.spawn_pedestrian(pedestrian)
-        backend = carla_backend
-
     try:
+        if args.backend == "carla":
+            carla_backend = CarlaBackend.connect(
+                CarlaConnectionConfig(host=args.host, port=args.port, fixed_delta_s=args.delta_s),
+                compact_traffic=args.compact_traffic,
+                vehicle_count=config.vehicle_count,
+                traffic_manager=args.traffic_manager,
+                traffic_manager_port=args.tm_port,
+                traffic_manager_seed=config.seed,
+            )
+            carla_backend.state.crosswalks.update(built.world.state.crosswalks)
+            carla_backend.state.signals.update(built.world.state.signals)
+            for vehicle in built.world.state.vehicles.values():
+                carla_backend.spawn_vehicle(vehicle)
+            for pedestrian in built.world.state.pedestrians.values():
+                carla_backend.spawn_pedestrian(pedestrian)
+            backend = carla_backend
+
         runner = SimulationRunner(
             world=backend,
             policy=SafetyPolicy(),
@@ -117,11 +174,19 @@ def _run_scenario(args: argparse.Namespace) -> int:
             metrics=metrics,
             safety_monitor=SafetyMonitor(),
         )
-        runner.run_steps(args.steps)
+        if args.live:
+            duration_text = "until Ctrl+C" if args.duration_s == 0 else f"for {args.duration_s:g}s"
+            print(f"Live CARLA mode active {duration_text}. Press Ctrl+C to stop.")
+            try:
+                _run_live(runner, args.duration_s)
+            except KeyboardInterrupt:
+                print("\nLive CARLA run stopped.")
+        else:
+            runner.run_steps(args.steps)
         report = {
             "backend": args.backend,
             "scenario": config.name,
-            "steps": args.steps,
+            "steps": runner.clock.frame,
             "metrics": metrics.report().as_dict(),
         }
         print(json.dumps(report, sort_keys=True))

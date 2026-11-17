@@ -1,0 +1,8 @@
+[scenario]
+name = "carla_live_crossing"
+seed = 42
+vehicle_count = 18
+pedestrian_count = 16
+vehicle_speed_mps = 8.0
+vehicle_spacing_m = 12.0
+pedestrian_wait_distance_m = 4.0
