@@ -93,7 +93,7 @@ class ScenarioFactory:
             y = side * (
                 crosswalk.conflict_zone.half_extents.y
                 + config.pedestrian_wait_distance_m
-                + queue_index * 1.5
+                + queue_index * 2.0
             )
             pedestrian = PedestrianState(
                 actor_id=f"ped-{index:04d}",
