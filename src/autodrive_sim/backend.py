@@ -45,6 +45,10 @@ class KinematicWorld:
         """Return the live state for the in-process deterministic backend."""
         return self.state
 
+    def sync_signals(self) -> None:
+        """Keep the backend contract compatible with the CARLA signal adapter."""
+        return None
+
     def add_crosswalk(self, crosswalk: Crosswalk) -> None:
         if crosswalk.crosswalk_id in self.state.crosswalks:
             raise ValueError(f"crosswalk already exists: {crosswalk.crosswalk_id}")

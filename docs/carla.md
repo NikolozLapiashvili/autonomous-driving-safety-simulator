@@ -16,7 +16,7 @@ The exact client command is intentionally pinned only after the target OS and CA
 
 `CarlaBackend` configures synchronous mode and a fixed delta, translates domain actor poses into CARLA transforms, applies conservative throttle/brake commands, advances one server tick, and cleans up actors created by the run.
 
-The first adapter uses CARLA ground-truth transforms and velocities. Camera, LiDAR, collision, and lane-invasion sensors will be added behind the same domain snapshot boundary so that the policy engine stays independent of the rendering backend.
+The first adapter uses CARLA ground-truth transforms and velocities. RGB camera, collision, and lane-invasion sensors are available behind the same domain snapshot boundary; LiDAR and learned perception can be added without changing the policy engine.
 
 The sensor layer now provides front RGB recording, collision events, and lane-invasion events. RGB frames are written as `actor_rgb_<frame>.png` files under `artifacts/sensors/`; the other sensors use the same JSONL event sink as the policy engine.
 

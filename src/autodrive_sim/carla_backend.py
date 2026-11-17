@@ -15,6 +15,7 @@ from .models import (
     PedestrianMode,
     PedestrianState,
     PolicyDecision,
+    TrafficPhase,
     VehicleState,
     WorldState,
 )
@@ -59,6 +60,7 @@ class CarlaBackend:
     _vehicle_actors: dict[str, Any] = field(default_factory=dict, repr=False)
     _pedestrian_actors: dict[str, Any] = field(default_factory=dict, repr=False)
     _pedestrian_controllers: dict[str, Any] = field(default_factory=dict, repr=False)
+    _traffic_lights: dict[str, list[Any]] = field(default_factory=dict, repr=False)
 
     @classmethod
     def connect(cls, config: CarlaConnectionConfig | None = None) -> CarlaBackend:
@@ -157,6 +159,15 @@ class CarlaBackend:
         self.state.time_s += delta_s
         self._refresh_state()
 
+    def sync_signals(self) -> None:
+        """Apply domain signal phases to CARLA traffic-light actors."""
+        for signal_id, signal in self.state.signals.items():
+            lights = self._traffic_lights.setdefault(signal_id, self._discover_lights())
+            for light in lights:
+                if not light.is_alive:
+                    continue
+                light.set_state(self._carla_signal_state(signal.phase))
+
     def close(self) -> None:
         """Stop controllers and destroy every actor created by this backend."""
         for controller in self._pedestrian_controllers.values():
@@ -178,6 +189,16 @@ class CarlaBackend:
             self.config.fixed_delta_s if self.config.synchronous_mode else None
         )
         self.carla_world.apply_settings(settings)
+
+    def _discover_lights(self) -> list[Any]:
+        return list(self.carla_world.get_actors().filter("traffic.traffic_light"))
+
+    def _carla_signal_state(self, phase: TrafficPhase) -> Any:
+        if phase is TrafficPhase.VEHICLE_GREEN:
+            return self._carla.TrafficLightState.Green
+        if phase is TrafficPhase.VEHICLE_YELLOW:
+            return self._carla.TrafficLightState.Yellow
+        return self._carla.TrafficLightState.Red
 
     def _refresh_state(self) -> None:
         for actor_id, actor in self._vehicle_actors.items():

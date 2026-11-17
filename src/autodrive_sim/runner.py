@@ -47,6 +47,9 @@ class SimulationRunner:
         self.world.step(self.clock.fixed_delta_s, decision)
         for controller in self.signal_controllers:
             controller.tick(self.world.snapshot(), self.clock.fixed_delta_s)
+        sync_signals = getattr(self.world, "sync_signals", None)
+        if callable(sync_signals):
+            sync_signals()
         if self.metrics is not None:
             self.metrics.observe(self.world.snapshot(), self.clock.fixed_delta_s)
         if self.event_sink is not None and self.safety_monitor is not None:
